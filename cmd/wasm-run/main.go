@@ -7,13 +7,21 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/go-interpreter/wagon/general"
+	"github.com/go-interpreter/wagon/golang"
+	"github.com/traefik/yaegi/interp"
 	"io"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/go-interpreter/wagon/exec"
 	"github.com/go-interpreter/wagon/validate"
 	"github.com/go-interpreter/wagon/wasm"
+)
+
+var (
+	includePath *string
 )
 
 func main() {
@@ -22,6 +30,7 @@ func main() {
 
 	verbose := flag.Bool("v", false, "enable/disable verbose mode")
 	verify := flag.Bool("verify-module", false, "run module verification")
+	includePath = flag.String("include-path", "/Users/gildarov/toys/wagon/exec/testdata", "include path (for resolving imports)")
 
 	flag.Parse()
 
@@ -102,8 +111,31 @@ func run(w io.Writer, fname string, verify bool) {
 	}
 }
 
-func importer(name string) (*wasm.Module, error) {
-	f, err := os.Open(name + ".wasm")
+func importer(name string) (general.Module, error) {
+	var f *os.File
+	var err error
+	if strings.HasPrefix(name, "go_") {
+		f, err = os.Open(*includePath + "/" + name[3:] + ".go")
+		if err != nil {
+			return nil, err
+		}
+
+		bs, err := io.ReadAll(f)
+		if err != nil {
+			return nil, err
+		}
+
+		i := interp.New(interp.Options{})
+		_, err = i.Eval(string(bs))
+		if err != nil {
+			return nil, err
+		}
+		return &golang.GoModule{
+			Interpreter: i,
+			Src:         string(bs),
+		}, nil
+	}
+	f, err = os.Open(name + ".wasm")
 	if err != nil {
 		return nil, err
 	}

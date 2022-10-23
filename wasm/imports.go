@@ -7,7 +7,10 @@ package wasm
 import (
 	"errors"
 	"fmt"
+	"github.com/go-interpreter/wagon/general"
+	"github.com/go-interpreter/wagon/golang"
 	"io"
+	"reflect"
 
 	"github.com/go-interpreter/wagon/wasm/leb128"
 )
@@ -134,7 +137,7 @@ func (module *Module) resolveImports(resolve ResolveFunc) error {
 		return nil
 	}
 
-	modules := make(map[string]*Module)
+	modules := make(map[string]general.Module)
 
 	var funcs uint32
 	for _, importEntry := range module.Import.Entries {
@@ -149,78 +152,91 @@ func (module *Module) resolveImports(resolve ResolveFunc) error {
 			modules[importEntry.ModuleName] = importedModule
 		}
 
-		if importedModule.Export == nil {
-			return ErrNoExportsInImportedModule
-		}
-
-		exportEntry, ok := importedModule.Export.Entries[importEntry.FieldName]
-		if !ok {
-			return ExportNotFoundError{importEntry.ModuleName, importEntry.FieldName}
-		}
-
-		if exportEntry.Kind != importEntry.Type.Kind() {
-			return KindMismatchError{
-				FieldName:  importEntry.FieldName,
-				ModuleName: importEntry.ModuleName,
-				Import:     importEntry.Type.Kind(),
-				Export:     exportEntry.Kind,
-			}
-		}
-
-		index := exportEntry.Index
-		switch exportEntry.Kind {
-		case ExternalFunction:
-			fn := importedModule.GetFunction(int(index))
-			if fn == nil {
-				return InvalidFunctionIndexError(index)
+		if wasmModule, ok := modules[importEntry.ModuleName].(*Module); ok {
+			if wasmModule.Export == nil {
+				return ErrNoExportsInImportedModule
 			}
 
-			importIndex := importEntry.Type.(FuncImport).Type
-			if len(fn.Sig.ReturnTypes) != len(module.Types.Entries[importIndex].ReturnTypes) || len(fn.Sig.ParamTypes) != len(module.Types.Entries[importIndex].ParamTypes) {
-				return InvalidImportError{importEntry.ModuleName, importEntry.FieldName, importIndex}
+			exportEntry, ok := wasmModule.Export.Entries[importEntry.FieldName]
+			if !ok {
+				return ExportNotFoundError{importEntry.ModuleName, importEntry.FieldName}
 			}
-			for i, typ := range fn.Sig.ReturnTypes {
-				if typ != module.Types.Entries[importIndex].ReturnTypes[i] {
-					return InvalidImportError{importEntry.ModuleName, importEntry.FieldName, importIndex}
+
+			if exportEntry.Kind != importEntry.Type.Kind() {
+				return KindMismatchError{
+					FieldName:  importEntry.FieldName,
+					ModuleName: importEntry.ModuleName,
+					Import:     importEntry.Type.Kind(),
+					Export:     exportEntry.Kind,
 				}
 			}
-			for i, typ := range fn.Sig.ParamTypes {
-				if typ != module.Types.Entries[importIndex].ParamTypes[i] {
+
+			index := exportEntry.Index
+			switch exportEntry.Kind {
+			case ExternalFunction:
+				fn := wasmModule.GetFunction(int(index))
+				if fn == nil {
+					return InvalidFunctionIndexError(index)
+				}
+
+				importIndex := importEntry.Type.(FuncImport).Type
+				if len(fn.Sig.ReturnTypes) != len(module.Types.Entries[importIndex].ReturnTypes) || len(fn.Sig.ParamTypes) != len(module.Types.Entries[importIndex].ParamTypes) {
 					return InvalidImportError{importEntry.ModuleName, importEntry.FieldName, importIndex}
 				}
-			}
-			module.FunctionIndexSpace = append(module.FunctionIndexSpace, *fn)
-			module.Code.Bodies = append(module.Code.Bodies, *fn.Body)
-			module.imports.Funcs = append(module.imports.Funcs, funcs)
-			funcs++
-		case ExternalGlobal:
-			glb := importedModule.GetGlobal(int(index))
-			if glb == nil {
-				return InvalidGlobalIndexError(index)
-			}
-			if glb.Type.Mutable {
-				return ErrImportMutGlobal
-			}
-			module.GlobalIndexSpace = append(module.GlobalIndexSpace, *glb)
-			module.imports.Globals++
+				for i, typ := range fn.Sig.ReturnTypes {
+					if typ != module.Types.Entries[importIndex].ReturnTypes[i] {
+						return InvalidImportError{importEntry.ModuleName, importEntry.FieldName, importIndex}
+					}
+				}
+				for i, typ := range fn.Sig.ParamTypes {
+					if typ != module.Types.Entries[importIndex].ParamTypes[i] {
+						return InvalidImportError{importEntry.ModuleName, importEntry.FieldName, importIndex}
+					}
+				}
+				module.FunctionIndexSpace = append(module.FunctionIndexSpace, *fn)
+				module.Code.Bodies = append(module.Code.Bodies, *fn.Body)
+				module.wasmImports.Funcs = append(module.wasmImports.Funcs, funcs)
+				funcs++
+			case ExternalGlobal:
+				glb := wasmModule.GetGlobal(int(index))
+				if glb == nil {
+					return InvalidGlobalIndexError(index)
+				}
+				if glb.Type.Mutable {
+					return ErrImportMutGlobal
+				}
+				module.GlobalIndexSpace = append(module.GlobalIndexSpace, *glb)
+				module.wasmImports.Globals++
 
-			// In both cases below, index should be always 0 (according to the MVP)
-			// We check it against the length of the index space anyway.
-		case ExternalTable:
-			if int(index) >= len(importedModule.TableIndexSpace) {
-				return InvalidTableIndexError(index)
+				// In both cases below, index should be always 0 (according to the MVP)
+				// We check it against the length of the index space anyway.
+			case ExternalTable:
+				if int(index) >= len(wasmModule.TableIndexSpace) {
+					return InvalidTableIndexError(index)
+				}
+				module.TableIndexSpace[0] = wasmModule.TableIndexSpace[0]
+				module.wasmImports.Tables++
+			case ExternalMemory:
+				if int(index) >= len(wasmModule.LinearMemoryIndexSpace) {
+					return InvalidLinearMemoryIndexError(index)
+				}
+				module.LinearMemoryIndexSpace[0] = wasmModule.LinearMemoryIndexSpace[0]
+				module.wasmImports.Memories++
+			default:
+				return InvalidExternalError(exportEntry.Kind)
 			}
-			module.TableIndexSpace[0] = importedModule.TableIndexSpace[0]
-			module.imports.Tables++
-		case ExternalMemory:
-			if int(index) >= len(importedModule.LinearMemoryIndexSpace) {
-				return InvalidLinearMemoryIndexError(index)
+		} else if goModule, ok := modules[importEntry.ModuleName].(*golang.GoModule); ok {
+			importEntry.ModuleName = importEntry.ModuleName[3:]
+			funcVal, err := goModule.Interpreter.Eval(importEntry.ModuleName + "." + importEntry.FieldName)
+			if err != nil {
+				return err
 			}
-			module.LinearMemoryIndexSpace[0] = importedModule.LinearMemoryIndexSpace[0]
-			module.imports.Memories++
-		default:
-			return InvalidExternalError(exportEntry.Kind)
+			if module.goImports.Funcs == nil {
+				module.goImports.Funcs = make(map[string]reflect.Value)
+			}
+			module.goImports.Funcs[importEntry.ModuleName+"."+importEntry.FieldName] = funcVal
 		}
 	}
+
 	return nil
 }

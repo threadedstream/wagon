@@ -108,9 +108,9 @@ func (m *Module) populateFunctions() error {
 		m.FunctionIndexSpace = append(m.FunctionIndexSpace, fn)
 	}
 
-	funcs := make([]uint32, 0, len(m.Function.Types)+len(m.imports.Funcs))
+	funcs := make([]uint32, 0, len(m.Function.Types)+len(m.wasmImports.Funcs)+len(m.goImports.Funcs))
 
-	funcs = append(funcs, m.imports.Funcs...)
+	funcs = append(funcs, m.wasmImports.Funcs...)
 	funcs = append(funcs, m.Function.Types...)
 	m.Function.Types = funcs
 	return nil
@@ -147,7 +147,7 @@ func (m *Module) GetFunctionSig(i uint32) (*FunctionSig, error) {
 		}
 	}
 
-	i = i - (funcindex - uint32(len(m.imports.Funcs)))
+	i = i - (funcindex - uint32(len(m.wasmImports.Funcs)))
 	if i >= uint32(len(m.Function.Types)) {
 		return nil, errors.New("fsig out of len")
 	}
@@ -196,7 +196,7 @@ func (m *Module) GetGlobalType(i uint32) (*GlobalVar, error) {
 		}
 	}
 
-	i = i - (globalindex - uint32(m.imports.Globals))
+	i = i - (globalindex - uint32(m.wasmImports.Globals))
 	if i >= uint32(len(m.Global.Globals)) {
 		return nil, errors.New("global index out of len")
 	}

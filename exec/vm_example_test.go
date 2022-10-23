@@ -30,7 +30,7 @@ func ExampleVM_add() {
 		// could be devised.
 		switch name {
 		case "add":
-			raw, err := compileWast2Wasm("testdata/add-ex.wast")
+			raw, err := compileWast2Wasm("testdata/add-ex.wat")
 			if err != nil {
 				return nil, fmt.Errorf("could not compile wast file hosting %q: %v", name, err)
 			}
@@ -121,9 +121,9 @@ func ExampleVM_add() {
 // See: https://github.com/go-interpreter/wagon/issues/34
 func compileWast2Wasm(fname string) ([]byte, error) {
 	switch fname {
-	case "testdata/add-ex.wast":
+	case "testdata/add-ex.wat":
 		// obtained by running:
-		//  $> wat2wasm -v -o add-ex.wasm add-ex.wast
+		//  $> wat2wasm -v -o add-ex.wasm add-ex.wat
 		return ioutil.ReadFile("testdata/add-ex.wasm")
 	case "testdata/add-ex-main.wast":
 		// obtained by running:

@@ -1,6 +1,6 @@
 module github.com/go-interpreter/wagon
 
-go 1.19
+go 1.18
 
 require (
 	github.com/edsrzf/mmap-go v1.1.0

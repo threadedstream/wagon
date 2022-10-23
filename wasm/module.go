@@ -7,6 +7,7 @@ package wasm
 import (
 	"errors"
 	"fmt"
+	"github.com/go-interpreter/wagon/general"
 	"io"
 	"reflect"
 
@@ -29,7 +30,8 @@ type Function struct {
 }
 
 // IsHost indicates whether this function is a host function as defined in:
-//  https://webassembly.github.io/spec/core/exec/modules.html#host-functions
+//
+//	https://webassembly.github.io/spec/core/exec/modules.html#host-functions
 func (fct *Function) IsHost() bool {
 	return fct.Host != reflect.Value{}
 }
@@ -62,12 +64,20 @@ type Module struct {
 	TableIndexSpace        [][]TableEntry
 	LinearMemoryIndexSpace [][]byte
 
-	imports struct {
+	wasmImports struct {
 		Funcs    []uint32
 		Globals  int
 		Tables   int
 		Memories int
 	}
+
+	goImports struct {
+		Funcs map[string]reflect.Value
+	}
+}
+
+func (*Module) IsModule() bool {
+	return true
 }
 
 // TableEntry represents a table index and tracks its initialized state.
@@ -88,7 +98,7 @@ func (m *Module) Custom(name string) *SectionCustom {
 
 // NewModule creates a new empty module
 func NewModule() *Module {
-	return &Module{
+	m := &Module{
 		Types:    &SectionTypes{},
 		Import:   &SectionImports{},
 		Table:    &SectionTables{},
@@ -99,11 +109,12 @@ func NewModule() *Module {
 		Elements: &SectionElements{},
 		Data:     &SectionData{},
 	}
+	return m
 }
 
 // ResolveFunc is a function that takes a module name and
 // returns a valid resolved module.
-type ResolveFunc func(name string) (*Module, error)
+type ResolveFunc func(name string) (general.Module, error)
 
 // DecodeModule is the same as ReadModule, but it only decodes the module without
 // initializing the index space or resolving imports.
