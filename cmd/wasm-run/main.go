@@ -76,11 +76,19 @@ func run(w io.Writer, fname string, verify bool) {
 			log.Printf("running exported functions with more than one return value is not supported")
 			continue
 		}
+		var args []uint64
 		if len(ftype.ParamTypes) > 0 {
-			log.Printf("running exported functions with input parameters is not supported")
-			continue
+			log.Printf("enter input parameters for function %s", ftype.String())
+			for i := range ftype.ParamTypes {
+				arg := uint64(0)
+				_, err = fmt.Scan(&arg)
+				if err != nil {
+					log.Printf("failed to get %dth parameter", i)
+				}
+				args = append(args, arg)
+			}
 		}
-		o, err := vm.ExecCode(i)
+		o, err := vm.ExecCode(i, args...)
 		if err != nil {
 			fmt.Fprintf(w, "\n")
 			log.Printf("err=%v", err)
